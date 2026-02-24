@@ -44,7 +44,7 @@ jobs:
           echo "已添加[sync]前缀到commit message"
 
           # 推送到CNB
-          git remote add cnb https://cnb:${{ secrets.CNB_TOKEN }}@${{ secrets.CNB_REPO }}
+          git remote add cnb https://cnb:${{ secrets.SYNC4CNB_TOKEN }}@${{ secrets.SYNC4CNB_REPO_VECTORDB_BENCH }}
           git push cnb $(git rev-parse --abbrev-ref HEAD) --force
 
           echo "✅ 已成功同步到CNB"
