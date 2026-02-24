@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+# Copyright 2026 VectorDBBench Authors
+# 
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# 
+#     http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Convert HDF5 datasets from ann-benchmarks to fvecs/ivecs format."""
+
+import h5py
+import numpy as np
+import struct
+import os
+import sys
+
+
+def write_fvecs(filename, vectors):
+  """Write vectors to fvecs format."""
+  with open(filename, 'wb') as f:
+    for vec in vectors:
+      dim = len(vec)
+      f.write(struct.pack('i', dim))
+      f.write(vec.astype(np.float32).tobytes())
+
+
+def write_ivecs(filename, vectors):
+  """Write vectors to ivecs format."""
+  with open(filename, 'wb') as f:
+    for vec in vectors:
+      dim = len(vec)
+      f.write(struct.pack('i', dim))
+      f.write(vec.astype(np.int32).tobytes())
+
+
+def convert_dataset(hdf5_path, output_dir, is_dot_product=False):
+  """Convert HDF5 dataset to fvecs/ivecs format."""
+  os.makedirs(output_dir, exist_ok=True)
+
+  print(f'Loading {hdf5_path}...')
+  with h5py.File(hdf5_path, 'r') as f:
+    print(f'  Keys: {list(f.keys())}')
+    train = np.array(f['train'])
+    test = np.array(f['test'])
+    neighbors = np.array(f['neighbors'])
+
+    # Convert test to float32 if needed
+    if test.dtype != np.float32:
+      test = test.astype(np.float32)
+
+    print(f'  Train: {train.shape}, dtype={train.dtype}')
+    print(f'  Test: {test.shape}, dtype={test.dtype}')
+    print(f'  Neighbors: {neighbors.shape}')
+
+  if is_dot_product:
+    base_name = 'train.fvecs'
+    query_name = 'test.fvecs'
+    gt_name = 'groundtruth.ivecs'
+  else:
+    base_name = 'sift_base.fvecs'
+    query_name = 'sift_query.fvecs'
+    gt_name = 'sift_groundtruth.ivecs'
+
+  print(f'Writing {output_dir}/{base_name}...')
+  write_fvecs(os.path.join(output_dir, base_name), train)
+  print(f'Writing {output_dir}/{query_name}...')
+  write_fvecs(os.path.join(output_dir, query_name), test)
+  print(f'Writing {output_dir}/{gt_name}...')
+  write_ivecs(os.path.join(output_dir, gt_name), neighbors)
+
+  print('Done!')
+
+
+def main():
+  if len(sys.argv) < 2:
+    print('Usage: python convert_hdf5_to_fvecs.py <hdf5_file> [output_dir] [--dot]')
+    print('  --dot: Use dot product naming convention (train.fvecs)')
+    sys.exit(1)
+
+  hdf5_path = sys.argv[1]
+  output_dir = sys.argv[2] if len(sys.argv) > 2 else os.path.dirname(hdf5_path)
+  is_dot = '--dot' in sys.argv
+
+  convert_dataset(hdf5_path, output_dir, is_dot)
+
+
+if __name__ == '__main__':
+  main()
