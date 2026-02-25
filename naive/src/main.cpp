@@ -20,10 +20,13 @@
 #include <arena-hnswlib/space_ip.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <iostream>
 #include <memory>
 #include <set>
+#include <thread>
+#include <vector>
 
 #include "benchmark_config.h"
 #include "dataset_loader.h"
@@ -152,25 +155,24 @@ static void BM_Hnswlib_Search(benchmark::State& state) {
   state.counters["ef_search"] = ef_search;
 }
 BENCHMARK(BM_Hnswlib_Search)
-    ->Args({50})
     ->Args({100})
     ->Args({200})
     ->Args({500})
+    ->Args({1000})
     ->Unit(benchmark::kMicrosecond);
 
 // ============================================================================
 // arena-hnswlib benchmarks
 // ============================================================================
 
-arena_hnswlib::SpacePtr<float> CreateArenaHnswlibSpace(
-    naive::MetricType metric_type, int dim) {
-  switch (metric_type) {
-    case naive::MetricType::kL2:
-      return std::make_unique<arena_hnswlib::L2Space<float>>(dim);
-    case naive::MetricType::kInnerProduct:
-      return std::make_unique<arena_hnswlib::InnerProductSpace<float>>(dim);
-    default:
-      throw std::runtime_error("Unknown metric type");
+// Helper to create index based on metric type
+template<typename SpaceT>
+void BuildArenaHnswlibIndex(
+    arena_hnswlib::HierarchicalNSW<float, SpaceT>& index,
+    const naive::Dataset& dataset) {
+  for (int i = 0; i < dataset.train_size; ++i) {
+    index.addPoint(dataset.train_vectors[i].data(),
+                   static_cast<arena_hnswlib::LabelType>(i));
   }
 }
 
@@ -180,25 +182,26 @@ static void BM_ArenaHnswlib_IndexConstruction(benchmark::State& state) {
   int ef_construction = state.range(1);
 
   for (auto _ : state) {
-    auto space = CreateArenaHnswlibSpace(g_dataset.metric_type,
-                                          g_dataset.dimension);
-    arena_hnswlib::HierarchicalNSW<float> index(
-        std::move(space), g_dataset.train_size, M, ef_construction);
-
     auto start = std::chrono::high_resolution_clock::now();
 
-    for (int i = 0; i < g_dataset.train_size; ++i) {
-      index.addPoint(g_dataset.train_vectors[i].data(),
-                     static_cast<arena_hnswlib::LabelType>(i));
+    if (g_dataset.metric_type == naive::MetricType::kL2) {
+      arena_hnswlib::L2Space<float> space(g_dataset.dimension);
+      arena_hnswlib::HierarchicalNSW<float, arena_hnswlib::L2Space<float>>
+          index(space, g_dataset.train_size, M, ef_construction);
+      BuildArenaHnswlibIndex(index, g_dataset);
+      benchmark::DoNotOptimize(&index);
+    } else {
+      arena_hnswlib::InnerProductSpace<float> space(g_dataset.dimension);
+      arena_hnswlib::HierarchicalNSW<float,
+                                     arena_hnswlib::InnerProductSpace<float>>
+          index(space, g_dataset.train_size, M, ef_construction);
+      BuildArenaHnswlibIndex(index, g_dataset);
+      benchmark::DoNotOptimize(&index);
     }
 
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
         end - start);
-
-    // Use escape to prevent optimization without DoNotOptimize issues
-    auto* ptr = &index;
-    benchmark::DoNotOptimize(ptr);
 
     state.SetItemsProcessed(g_dataset.train_size);
     state.counters["duration_ms"] = duration.count();
@@ -214,31 +217,46 @@ static void BM_ArenaHnswlib_Search(benchmark::State& state) {
   int ef_search = state.range(0);
   int k = g_config.k;
 
-  // Build index
-  auto space = CreateArenaHnswlibSpace(g_dataset.metric_type,
-                                        g_dataset.dimension);
-  arena_hnswlib::HierarchicalNSW<float> index(
-      std::move(space), g_dataset.train_size, g_config.M, g_config.ef_construction);
-
-  for (int i = 0; i < g_dataset.train_size; ++i) {
-    index.addPoint(g_dataset.train_vectors[i].data(),
-                   static_cast<arena_hnswlib::LabelType>(i));
-  }
-
-  index.setEfSearch(ef_search);
-
   std::vector<std::vector<int>> all_results(g_dataset.test_size);
 
-  for (auto _ : state) {
-    for (int i = 0; i < g_dataset.test_size; ++i) {
-      auto result = index.searchKnn(g_dataset.test_vectors[i].data(), k);
+  if (g_dataset.metric_type == naive::MetricType::kL2) {
+    arena_hnswlib::L2Space<float> space(g_dataset.dimension);
+    arena_hnswlib::HierarchicalNSW<float, arena_hnswlib::L2Space<float>>
+        index(space, g_dataset.train_size, g_config.M, g_config.ef_construction);
+    BuildArenaHnswlibIndex(index, g_dataset);
+    index.setEfSearch(ef_search);
 
-      all_results[i].clear();
-      while (!result.empty()) {
-        all_results[i].push_back(static_cast<int>(result.top().second));
-        result.pop();
+    for (auto _ : state) {
+      for (int i = 0; i < g_dataset.test_size; ++i) {
+        auto result = index.searchKnn(g_dataset.test_vectors[i].data(), k);
+
+        all_results[i].clear();
+        while (!result.empty()) {
+          all_results[i].push_back(static_cast<int>(result.top().second));
+          result.pop();
+        }
+        std::reverse(all_results[i].begin(), all_results[i].end());
       }
-      std::reverse(all_results[i].begin(), all_results[i].end());
+    }
+  } else {
+    arena_hnswlib::InnerProductSpace<float> space(g_dataset.dimension);
+    arena_hnswlib::HierarchicalNSW<float,
+                                   arena_hnswlib::InnerProductSpace<float>>
+        index(space, g_dataset.train_size, g_config.M, g_config.ef_construction);
+    BuildArenaHnswlibIndex(index, g_dataset);
+    index.setEfSearch(ef_search);
+
+    for (auto _ : state) {
+      for (int i = 0; i < g_dataset.test_size; ++i) {
+        auto result = index.searchKnn(g_dataset.test_vectors[i].data(), k);
+
+        all_results[i].clear();
+        while (!result.empty()) {
+          all_results[i].push_back(static_cast<int>(result.top().second));
+          result.pop();
+        }
+        std::reverse(all_results[i].begin(), all_results[i].end());
+      }
     }
   }
 
@@ -249,10 +267,10 @@ static void BM_ArenaHnswlib_Search(benchmark::State& state) {
   state.counters["ef_search"] = ef_search;
 }
 BENCHMARK(BM_ArenaHnswlib_Search)
-    ->Args({50})
     ->Args({100})
     ->Args({200})
     ->Args({500})
+    ->Args({1000})
     ->Unit(benchmark::kMicrosecond);
 
 // ============================================================================
@@ -288,35 +306,218 @@ BENCHMARK(BM_Hnswlib_SingleQuery)
     ->Args({200})
     ->Unit(benchmark::kNanosecond);
 
+// ============================================================================
+// Multi-threaded concurrent search benchmarks
+// ============================================================================
+
+static void BM_Hnswlib_ConcurrentSearch(benchmark::State& state) {
+  int ef_search = state.range(0);
+  int num_threads = state.range(1);
+  int k = g_config.k;
+
+  auto space = CreateHnswlibSpace(g_dataset.metric_type, g_dataset.dimension);
+  hnswlib::HierarchicalNSW<float> index(
+      space.get(), g_dataset.train_size, g_config.M, g_config.ef_construction);
+
+  for (int i = 0; i < g_dataset.train_size; ++i) {
+    index.addPoint(g_dataset.train_vectors[i].data(),
+                   static_cast<hnswlib::labeltype>(i));
+  }
+
+  index.setEf(ef_search);
+
+  std::vector<std::vector<int>> all_results(g_dataset.test_size);
+
+  for (auto _ : state) {
+    std::vector<std::thread> threads;
+    std::atomic<int> query_counter{0};
+
+    auto worker = [&]() {
+      while (true) {
+        int query_idx = query_counter.fetch_add(1);
+        if (query_idx >= g_dataset.test_size) {
+          break;
+        }
+
+        auto result =
+            index.searchKnn(g_dataset.test_vectors[query_idx].data(), k);
+
+        all_results[query_idx].clear();
+        while (!result.empty()) {
+          all_results[query_idx].push_back(static_cast<int>(result.top().second));
+          result.pop();
+        }
+        std::reverse(all_results[query_idx].begin(),
+                     all_results[query_idx].end());
+      }
+    };
+
+    for (int t = 0; t < num_threads; ++t) {
+      threads.emplace_back(worker);
+    }
+
+    for (auto& thread : threads) {
+      thread.join();
+    }
+  }
+
+  double recall = CalculateRecall(all_results, g_dataset.ground_truth, k);
+
+  state.SetItemsProcessed(state.iterations() * g_dataset.test_size);
+  state.counters["recall"] = recall * 100;
+  state.counters["ef_search"] = ef_search;
+  state.counters["threads"] = num_threads;
+}
+BENCHMARK(BM_Hnswlib_ConcurrentSearch)
+    ->Args({1000, 1})
+    ->Args({1000, 2})
+    ->Args({1000, 4})
+    ->Args({1000, 8})
+    ->Iterations(10)
+    ->Unit(benchmark::kMicrosecond);
+
 static void BM_ArenaHnswlib_SingleQuery(benchmark::State& state) {
   int ef_search = state.range(0);
   int k = g_config.k;
 
-  auto space = CreateArenaHnswlibSpace(g_dataset.metric_type,
-                                        g_dataset.dimension);
-  arena_hnswlib::HierarchicalNSW<float> index(
-      std::move(space), g_dataset.train_size, g_config.M, g_config.ef_construction);
-
-  for (int i = 0; i < g_dataset.train_size; ++i) {
-    index.addPoint(g_dataset.train_vectors[i].data(),
-                   static_cast<arena_hnswlib::LabelType>(i));
-  }
-
-  index.setEfSearch(ef_search);
-
   int query_idx = 0;
 
-  for (auto _ : state) {
-    auto result = index.searchKnn(g_dataset.test_vectors[query_idx].data(), k);
-    benchmark::DoNotOptimize(result);
+  if (g_dataset.metric_type == naive::MetricType::kL2) {
+    arena_hnswlib::L2Space<float> space(g_dataset.dimension);
+    arena_hnswlib::HierarchicalNSW<float, arena_hnswlib::L2Space<float>>
+        index(space, g_dataset.train_size, g_config.M, g_config.ef_construction);
+    BuildArenaHnswlibIndex(index, g_dataset);
+    index.setEfSearch(ef_search);
 
-    query_idx = (query_idx + 1) % g_dataset.test_size;
+    for (auto _ : state) {
+      auto result = index.searchKnn(g_dataset.test_vectors[query_idx].data(), k);
+      benchmark::DoNotOptimize(result);
+      query_idx = (query_idx + 1) % g_dataset.test_size;
+    }
+  } else {
+    arena_hnswlib::InnerProductSpace<float> space(g_dataset.dimension);
+    arena_hnswlib::HierarchicalNSW<float,
+                                   arena_hnswlib::InnerProductSpace<float>>
+        index(space, g_dataset.train_size, g_config.M, g_config.ef_construction);
+    BuildArenaHnswlibIndex(index, g_dataset);
+    index.setEfSearch(ef_search);
+
+    for (auto _ : state) {
+      auto result = index.searchKnn(g_dataset.test_vectors[query_idx].data(), k);
+      benchmark::DoNotOptimize(result);
+      query_idx = (query_idx + 1) % g_dataset.test_size;
+    }
   }
 }
 BENCHMARK(BM_ArenaHnswlib_SingleQuery)
     ->Args({100})
     ->Args({200})
     ->Unit(benchmark::kNanosecond);
+
+static void BM_ArenaHnswlib_ConcurrentSearch(benchmark::State& state) {
+  int ef_search = state.range(0);
+  int num_threads = state.range(1);
+  int k = g_config.k;
+
+  std::vector<std::vector<int>> all_results(g_dataset.test_size);
+
+  if (g_dataset.metric_type == naive::MetricType::kL2) {
+    arena_hnswlib::L2Space<float> space(g_dataset.dimension);
+    arena_hnswlib::HierarchicalNSW<float, arena_hnswlib::L2Space<float>>
+        index(space, g_dataset.train_size, g_config.M, g_config.ef_construction);
+    BuildArenaHnswlibIndex(index, g_dataset);
+    index.setEfSearch(ef_search);
+
+    for (auto _ : state) {
+      std::vector<std::thread> threads;
+      std::atomic<int> query_counter{0};
+
+      auto worker = [&]() {
+        while (true) {
+          int query_idx = query_counter.fetch_add(1);
+          if (query_idx >= g_dataset.test_size) {
+            break;
+          }
+
+          auto result =
+              index.searchKnn(g_dataset.test_vectors[query_idx].data(), k);
+
+          all_results[query_idx].clear();
+          while (!result.empty()) {
+            all_results[query_idx].push_back(
+                static_cast<int>(result.top().second));
+            result.pop();
+          }
+          std::reverse(all_results[query_idx].begin(),
+                       all_results[query_idx].end());
+        }
+      };
+
+      for (int t = 0; t < num_threads; ++t) {
+        threads.emplace_back(worker);
+      }
+
+      for (auto& thread : threads) {
+        thread.join();
+      }
+    }
+  } else {
+    arena_hnswlib::InnerProductSpace<float> space(g_dataset.dimension);
+    arena_hnswlib::HierarchicalNSW<float,
+                                   arena_hnswlib::InnerProductSpace<float>>
+        index(space, g_dataset.train_size, g_config.M, g_config.ef_construction);
+    BuildArenaHnswlibIndex(index, g_dataset);
+    index.setEfSearch(ef_search);
+
+    for (auto _ : state) {
+      std::vector<std::thread> threads;
+      std::atomic<int> query_counter{0};
+
+      auto worker = [&]() {
+        while (true) {
+          int query_idx = query_counter.fetch_add(1);
+          if (query_idx >= g_dataset.test_size) {
+            break;
+          }
+
+          auto result =
+              index.searchKnn(g_dataset.test_vectors[query_idx].data(), k);
+
+          all_results[query_idx].clear();
+          while (!result.empty()) {
+            all_results[query_idx].push_back(
+                static_cast<int>(result.top().second));
+            result.pop();
+          }
+          std::reverse(all_results[query_idx].begin(),
+                       all_results[query_idx].end());
+        }
+      };
+
+      for (int t = 0; t < num_threads; ++t) {
+        threads.emplace_back(worker);
+      }
+
+      for (auto& thread : threads) {
+        thread.join();
+      }
+    }
+  }
+
+  double recall = CalculateRecall(all_results, g_dataset.ground_truth, k);
+
+  state.SetItemsProcessed(state.iterations() * g_dataset.test_size);
+  state.counters["recall"] = recall * 100;
+  state.counters["ef_search"] = ef_search;
+  state.counters["threads"] = num_threads;
+}
+BENCHMARK(BM_ArenaHnswlib_ConcurrentSearch)
+    ->Args({1000, 1})
+    ->Args({1000, 2})
+    ->Args({1000, 4})
+    ->Args({1000, 8})
+    ->Iterations(10)
+    ->Unit(benchmark::kMicrosecond);
 
 }  // namespace
 
