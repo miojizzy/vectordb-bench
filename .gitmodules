@@ -1,3 +1,6 @@
 [submodule "naive/third_party/hnswlib"]
 	path = naive/third_party/hnswlib
 	url = https://github.com/nmslib/hnswlib.git
+[submodule "naive/third_party/arena-hnswlib"]
+	path = naive/third_party/arena-hnswlib
+	url = https://github.com/miojizzy/arena-hnswlib.git
