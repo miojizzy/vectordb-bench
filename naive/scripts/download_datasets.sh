@@ -22,6 +22,8 @@ DATA_DIR="${SCRIPT_DIR}/../data"
 SIFT_URL="ftp://ftp.irisa.fr/local/texmex/corpus/sift.tar.gz"
 SIFT_MIRROR="http://ann-benchmarks.com/sift-128-euclidean.tar.gz"
 GLOVE_URL="http://ann-benchmarks.com/glove-50-angular.hdf5"
+DEEP1B_URL="http://ann-benchmarks.com/deep-96-angular.hdf5"
+GIST_URL="http://ann-benchmarks.com/gist-960-euclidean.hdf5"
 
 # Colors for output
 RED='\033[0;31m'
@@ -158,6 +160,204 @@ EOF
   log_info "GloVe dataset ready at $glove_dir"
 }
 
+# Download DEEP1B
+download_deep1b() {
+  log_step "Downloading DEEP1B dataset (Angular distance, 3.6GB)..."
+
+  local deep1b_dir="${DATA_DIR}/deep1b"
+  local hdf5_file="${DATA_DIR}/deep-96-angular.hdf5"
+
+  if [ -d "$deep1b_dir" ] && [ -f "$deep1b_dir/train.fvecs" ]; then
+    log_info "DEEP1B dataset already extracted"
+    return 0
+  fi
+
+  mkdir -p "$DATA_DIR"
+  download_file "$DEEP1B_URL" "$hdf5_file"
+
+  log_info "Extracting DEEP1B dataset from HDF5..."
+  mkdir -p "$deep1b_dir"
+
+  # Use Python to extract HDF5 to fvecs format
+  python3 << 'EOF'
+import h5py
+import numpy as np
+import struct
+import os
+import sys
+
+hdf5_path = os.environ.get('HDF5_PATH', '')
+output_dir = os.environ.get('OUTPUT_DIR', '')
+
+print(f"Loading {hdf5_path}...")
+try:
+    with h5py.File(hdf5_path, 'r') as f:
+        print(f"Keys: {list(f.keys())}")
+
+        train = np.array(f['train'])
+        test = np.array(f['test'])
+        neighbors = np.array(f['neighbors'])
+
+        print(f"Train shape: {train.shape}")
+        print(f"Test shape: {test.shape}")
+        print(f"Neighbors shape: {neighbors.shape}")
+
+    def write_fvecs(filename, vectors):
+        with open(filename, 'wb') as f:
+            for i, vec in enumerate(vectors):
+                if i % 1000000 == 0:
+                    print(f"  Writing vector {i}/{len(vectors)}...")
+                dim = len(vec)
+                f.write(struct.pack('i', dim))
+                f.write(vec.astype(np.float32).tobytes())
+
+    def write_ivecs(filename, vectors):
+        with open(filename, 'wb') as f:
+            for vec in vectors:
+                dim = len(vec)
+                f.write(struct.pack('i', dim))
+                f.write(vec.astype(np.int32).tobytes())
+
+    write_fvecs(os.path.join(output_dir, 'train.fvecs'), train)
+    write_fvecs(os.path.join(output_dir, 'test.fvecs'), test)
+    write_ivecs(os.path.join(output_dir, 'groundtruth.ivecs'), neighbors)
+
+    print("Extraction complete!")
+except Exception as e:
+    print(f"Error: {e}")
+    sys.exit(1)
+EOF
+
+  # Export variables for the Python script
+  export HDF5_PATH="$hdf5_file"
+  export OUTPUT_DIR="$deep1b_dir"
+  python3 << 'PYEOF'
+import h5py
+import numpy as np
+import struct
+import os
+import sys
+
+hdf5_path = os.environ['HDF5_PATH']
+output_dir = os.environ['OUTPUT_DIR']
+
+print(f"Loading {hdf5_path}...")
+try:
+    with h5py.File(hdf5_path, 'r') as f:
+        print(f"Keys: {list(f.keys())}")
+
+        train = np.array(f['train'])
+        test = np.array(f['test'])
+        neighbors = np.array(f['neighbors'])
+
+        print(f"Train shape: {train.shape}")
+        print(f"Test shape: {test.shape}")
+        print(f"Neighbors shape: {neighbors.shape}")
+
+    def write_fvecs(filename, vectors):
+        with open(filename, 'wb') as f:
+            for i, vec in enumerate(vectors):
+                if i % 1000000 == 0:
+                    print(f"  Writing vector {i}/{len(vectors)}...")
+                dim = len(vec)
+                f.write(struct.pack('i', dim))
+                f.write(vec.astype(np.float32).tobytes())
+
+    def write_ivecs(filename, vectors):
+        with open(filename, 'wb') as f:
+            for vec in vectors:
+                dim = len(vec)
+                f.write(struct.pack('i', dim))
+                f.write(vec.astype(np.int32).tobytes())
+
+    write_fvecs(os.path.join(output_dir, 'train.fvecs'), train)
+    write_fvecs(os.path.join(output_dir, 'test.fvecs'), test)
+    write_ivecs(os.path.join(output_dir, 'groundtruth.ivecs'), neighbors)
+
+    print("Extraction complete!")
+except Exception as e:
+    print(f"Error: {e}")
+    sys.exit(1)
+PYEOF
+
+  rm -f "$hdf5_file"
+  log_info "DEEP1B dataset ready at $deep1b_dir"
+}
+
+# Download GIST
+download_gist() {
+  log_step "Downloading GIST dataset (Euclidean distance, 3.6GB)..."
+
+  local gist_dir="${DATA_DIR}/gist"
+  local hdf5_file="${DATA_DIR}/gist-960-euclidean.hdf5"
+
+  if [ -d "$gist_dir" ] && [ -f "$gist_dir/train.fvecs" ]; then
+    log_info "GIST dataset already extracted"
+    return 0
+  fi
+
+  mkdir -p "$DATA_DIR"
+  download_file "$GIST_URL" "$hdf5_file"
+
+  log_info "Extracting GIST dataset from HDF5..."
+  mkdir -p "$gist_dir"
+
+  # Export variables for the Python script
+  export HDF5_PATH="$hdf5_file"
+  export OUTPUT_DIR="$gist_dir"
+  python3 << 'PYEOF'
+import h5py
+import numpy as np
+import struct
+import os
+import sys
+
+hdf5_path = os.environ['HDF5_PATH']
+output_dir = os.environ['OUTPUT_DIR']
+
+print(f"Loading {hdf5_path}...")
+try:
+    with h5py.File(hdf5_path, 'r') as f:
+        print(f"Keys: {list(f.keys())}")
+
+        train = np.array(f['train'])
+        test = np.array(f['test'])
+        neighbors = np.array(f['neighbors'])
+
+        print(f"Train shape: {train.shape}")
+        print(f"Test shape: {test.shape}")
+        print(f"Neighbors shape: {neighbors.shape}")
+
+    def write_fvecs(filename, vectors):
+        with open(filename, 'wb') as f:
+            for i, vec in enumerate(vectors):
+                if i % 100000 == 0:
+                    print(f"  Writing vector {i}/{len(vectors)}...")
+                dim = len(vec)
+                f.write(struct.pack('i', dim))
+                f.write(vec.astype(np.float32).tobytes())
+
+    def write_ivecs(filename, vectors):
+        with open(filename, 'wb') as f:
+            for vec in vectors:
+                dim = len(vec)
+                f.write(struct.pack('i', dim))
+                f.write(vec.astype(np.int32).tobytes())
+
+    write_fvecs(os.path.join(output_dir, 'train.fvecs'), train)
+    write_fvecs(os.path.join(output_dir, 'test.fvecs'), test)
+    write_ivecs(os.path.join(output_dir, 'groundtruth.ivecs'), neighbors)
+
+    print("Extraction complete!")
+except Exception as e:
+    print(f"Error: {e}")
+    sys.exit(1)
+PYEOF
+
+  rm -f "$hdf5_file"
+  log_info "GIST dataset ready at $gist_dir"
+}
+
 # Verify datasets
 verify() {
   log_step "Verifying datasets..."
@@ -183,6 +383,24 @@ verify() {
     log_warn "GloVe: train.fvecs not found (optional)"
   fi
 
+  # Verify DEEP1B
+  local deep1b_dir="${DATA_DIR}/deep1b"
+  if [ -f "$deep1b_dir/train.fvecs" ]; then
+    local size=$(stat -c%s "$deep1b_dir/train.fvecs" 2>/dev/null || stat -f%z "$deep1b_dir/train.fvecs")
+    log_info "DEEP1B: train.fvecs ($(($size / 1024 / 1024)) MB)"
+  else
+    log_warn "DEEP1B: train.fvecs not found (optional)"
+  fi
+
+  # Verify GIST
+  local gist_dir="${DATA_DIR}/gist"
+  if [ -f "$gist_dir/train.fvecs" ]; then
+    local size=$(stat -c%s "$gist_dir/train.fvecs" 2>/dev/null || stat -f%z "$gist_dir/train.fvecs")
+    log_info "GIST: train.fvecs ($(($size / 1024 / 1024)) MB)"
+  else
+    log_warn "GIST: train.fvecs not found (optional)"
+  fi
+
   if $all_ok; then
     log_info "All datasets verified successfully!"
     return 0
@@ -194,11 +412,13 @@ verify() {
 
 # Usage
 usage() {
-  echo "Usage: $0 [sift|glove|all|verify]"
+  echo "Usage: $0 [sift|glove|deep1b|gist|all|verify]"
   echo ""
   echo "Commands:"
-  echo "  sift    - Download SIFT dataset (L2 distance)"
-  echo "  glove   - Download GloVe dataset (Angular distance)"
+  echo "  sift    - Download SIFT dataset (L2 distance, 501MB)"
+  echo "  glove   - Download GloVe dataset (Angular distance, 235MB)"
+  echo "  deep1b  - Download DEEP1B dataset (Angular distance, 3.6GB)"
+  echo "  gist    - Download GIST dataset (L2 distance, 3.6GB)"
   echo "  all     - Download all datasets (default)"
   echo "  verify  - Verify existing datasets"
 }
@@ -219,9 +439,17 @@ main() {
     glove)
       download_glove
       ;;
+    deep1b)
+      download_deep1b
+      ;;
+    gist)
+      download_gist
+      ;;
     all)
       download_sift
       download_glove
+      download_deep1b
+      download_gist
       ;;
     verify)
       verify
