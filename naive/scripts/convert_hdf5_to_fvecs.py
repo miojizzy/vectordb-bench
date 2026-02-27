@@ -41,7 +41,14 @@ def write_ivecs(filename, vectors):
 
 
 def convert_dataset(hdf5_path, output_dir, is_dot_product=False):
-  """Convert HDF5 dataset to fvecs/ivecs format."""
+  """Convert HDF5 dataset to fvecs/ivecs format.
+
+  Args:
+    hdf5_path: Path to input HDF5 file
+    output_dir: Output directory for fvecs/ivecs files
+    is_dot_product: If True, use generic naming (train.fvecs, test.fvecs).
+                    If False, use SIFT-style naming (sift_base.fvecs).
+  """
   os.makedirs(output_dir, exist_ok=True)
 
   print(f'Loading {hdf5_path}...')
@@ -51,7 +58,9 @@ def convert_dataset(hdf5_path, output_dir, is_dot_product=False):
     test = np.array(f['test'])
     neighbors = np.array(f['neighbors'])
 
-    # Convert test to float32 if needed
+    # Convert to float32 if needed
+    if train.dtype != np.float32:
+      train = train.astype(np.float32)
     if test.dtype != np.float32:
       test = test.astype(np.float32)
 
@@ -59,6 +68,7 @@ def convert_dataset(hdf5_path, output_dir, is_dot_product=False):
     print(f'  Test: {test.shape}, dtype={test.dtype}')
     print(f'  Neighbors: {neighbors.shape}')
 
+  # Determine output file names
   if is_dot_product:
     base_name = 'train.fvecs'
     query_name = 'test.fvecs'
@@ -75,7 +85,9 @@ def convert_dataset(hdf5_path, output_dir, is_dot_product=False):
   print(f'Writing {output_dir}/{gt_name}...')
   write_ivecs(os.path.join(output_dir, gt_name), neighbors)
 
-  print('Done!')
+  print('Conversion complete!')
+  print(f'  Output directory: {output_dir}')
+  print(f'  Files: {base_name}, {query_name}, {gt_name}')
 
 
 def main():

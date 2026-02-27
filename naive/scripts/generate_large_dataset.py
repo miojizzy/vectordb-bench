@@ -26,6 +26,11 @@ def main():
     dim = 128
     k = 100
 
+    # Use project-relative path
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(script_dir)
+    data_dir = os.path.join(project_root, 'data', 'sift')
+
     print('Generating training vectors...')
     train_vectors = np.random.randn(num_train, dim).astype(np.float32)
     train_vectors = train_vectors / np.linalg.norm(train_vectors, axis=1, keepdims=True)
@@ -47,12 +52,13 @@ def main():
 
     ground_truth = np.array(ground_truth)
 
-    os.makedirs('data/sift', exist_ok=True)
-    write_fvecs('data/sift/sift_base.fvecs', train_vectors)
-    write_fvecs('data/sift/sift_query.fvecs', test_vectors)
-    write_ivecs('data/sift/sift_groundtruth.ivecs', ground_truth)
+    os.makedirs(data_dir, exist_ok=True)
+    write_fvecs(os.path.join(data_dir, 'sift_base.fvecs'), train_vectors)
+    write_fvecs(os.path.join(data_dir, 'sift_query.fvecs'), test_vectors)
+    write_ivecs(os.path.join(data_dir, 'sift_groundtruth.ivecs'), ground_truth)
 
     print(f'Dataset generated: {num_train} train, {num_test} test, dim={dim}')
+    print(f'Output: {data_dir}')
 
 if __name__ == "__main__":
     main()

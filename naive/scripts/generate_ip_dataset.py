@@ -31,6 +31,11 @@ def main():
     dim = 128
     k = 100
 
+    # Use project-relative path
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(script_dir)
+    data_dir = os.path.join(project_root, 'data', 'glove')
+
     print('Generating training vectors (L2 normalized)...')
     train_vectors = np.random.randn(num_train, dim).astype(np.float32)
     # L2 normalize for Inner Product / Cosine similarity
@@ -64,10 +69,10 @@ def main():
 
     ground_truth = np.array(ground_truth)
 
-    os.makedirs('data/glove', exist_ok=True)
-    write_fvecs('data/glove/train.fvecs', train_vectors)
-    write_fvecs('data/glove/test.fvecs', test_vectors)
-    write_ivecs('data/glove/groundtruth.ivecs', ground_truth)
+    os.makedirs(data_dir, exist_ok=True)
+    write_fvecs(os.path.join(data_dir, 'train.fvecs'), train_vectors)
+    write_fvecs(os.path.join(data_dir, 'test.fvecs'), test_vectors)
+    write_ivecs(os.path.join(data_dir, 'groundtruth.ivecs'), ground_truth)
 
     print(f'\nDataset generated for Inner Product distance:')
     print(f'  Train vectors: {num_train}')
@@ -75,7 +80,7 @@ def main():
     print(f'  Dimension: {dim}')
     print(f'  K: {k}')
     print(f'  Metric: Inner Product (vectors are L2 normalized)')
-    print(f'  Output: data/glove/')
+    print(f'  Output: {data_dir}')
 
 if __name__ == "__main__":
     main()

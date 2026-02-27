@@ -77,7 +77,10 @@ def generate_sift_like_dataset(output_dir, num_train=10000, num_test=1000,
     print(f"  Output: {output_dir}")
 
 def main():
-    output_dir = sys.argv[1] if len(sys.argv) > 1 else "data/sift"
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(script_dir)
+    default_output = os.path.join(project_root, "data", "sift")
+    output_dir = sys.argv[1] if len(sys.argv) > 1 else default_output
     
     # Generate small test dataset
     generate_sift_like_dataset(

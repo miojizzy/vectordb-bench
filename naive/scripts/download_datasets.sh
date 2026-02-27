@@ -16,13 +16,13 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DATA_DIR="${SCRIPT_DIR}/../data"
+PROJECT_ROOT="${SCRIPT_DIR}/.."
+DATA_DIR="${PROJECT_ROOT}/data"
+CONVERT_SCRIPT="${SCRIPT_DIR}/convert_hdf5_to_fvecs.py"
 
-# URLs - Using multiple mirrors for reliability
-SIFT_URL="ftp://ftp.irisa.fr/local/texmex/corpus/sift.tar.gz"
-SIFT_MIRROR="http://ann-benchmarks.com/sift-128-euclidean.tar.gz"
+# URLs - All datasets from ann-benchmarks (HDF5 format)
+SIFT_URL="http://ann-benchmarks.com/sift-128-euclidean.hdf5"
 GLOVE_URL="http://ann-benchmarks.com/glove-50-angular.hdf5"
-DEEP1B_URL="http://ann-benchmarks.com/deep-96-angular.hdf5"
 GIST_URL="http://ann-benchmarks.com/gist-960-euclidean.hdf5"
 
 # Colors for output
@@ -59,12 +59,35 @@ download_file() {
   fi
 }
 
-# Download and extract SIFT
+# Convert HDF5 to fvecs/ivecs format
+convert_hdf5_dataset() {
+  local hdf5_file=$1
+  local output_dir=$2
+  local use_dot_naming=$3
+
+  log_info "Converting $hdf5_file to fvecs format..."
+
+  if [ "$use_dot_naming" = "true" ]; then
+    python3 "$CONVERT_SCRIPT" "$hdf5_file" "$output_dir" --dot
+  else
+    python3 "$CONVERT_SCRIPT" "$hdf5_file" "$output_dir"
+  fi
+
+  if [ $? -eq 0 ]; then
+    rm -f "$hdf5_file"
+    log_info "Converted and removed HDF5 file"
+  else
+    log_error "Conversion failed"
+    return 1
+  fi
+}
+
+# Download SIFT
 download_sift() {
   log_step "Downloading SIFT dataset (L2 distance)..."
 
   local sift_dir="${DATA_DIR}/sift"
-  local tar_file="${DATA_DIR}/sift.tar.gz"
+  local hdf5_file="${DATA_DIR}/sift-128-euclidean.hdf5"
 
   if [ -d "$sift_dir" ] && [ -f "$sift_dir/sift_base.fvecs" ]; then
     log_info "SIFT dataset already exists"
@@ -72,289 +95,50 @@ download_sift() {
   fi
 
   mkdir -p "$DATA_DIR"
-  download_file "$SIFT_URL" "$tar_file"
+  download_file "$SIFT_URL" "$hdf5_file"
 
-  log_info "Extracting SIFT dataset..."
   mkdir -p "$sift_dir"
-  tar -xzf "$tar_file" -C "$sift_dir" --strip-components=1 2>/dev/null || \
-    tar -xzf "$tar_file" -C "$sift_dir"
-
-  # Rename files if needed
-  if [ -f "$sift_dir/sift-128-euclidean.train" ]; then
-    mv "$sift_dir/sift-128-euclidean.train" "$sift_dir/sift_base.fvecs" 2>/dev/null || true
-    mv "$sift_dir/sift-128-euclidean.test" "$sift_dir/sift_query.fvecs" 2>/dev/null || true
-    mv "$sift_dir/sift-128-euclidean.groundtruth" "$sift_dir/sift_groundtruth.ivecs" 2>/dev/null || true
-  fi
-
-  rm -f "$tar_file"
+  convert_hdf5_dataset "$hdf5_file" "$sift_dir" "false"
   log_info "SIFT dataset ready at $sift_dir"
 }
 
 # Download GloVe
 download_glove() {
-  log_step "Downloading GloVe dataset (Angular/Inner Product distance)..."
+  log_step "Downloading GloVe dataset (Angular distance)..."
 
   local glove_dir="${DATA_DIR}/glove"
   local hdf5_file="${DATA_DIR}/glove-50-angular.hdf5"
 
   if [ -d "$glove_dir" ] && [ -f "$glove_dir/train.fvecs" ]; then
-    log_info "GloVe dataset already extracted"
+    log_info "GloVe dataset already exists"
     return 0
   fi
 
   mkdir -p "$DATA_DIR"
   download_file "$GLOVE_URL" "$hdf5_file"
 
-  log_info "Extracting GloVe dataset from HDF5..."
   mkdir -p "$glove_dir"
-
-  # Use Python to extract HDF5 to fvecs format
-  python3 << EOF
-import h5py
-import numpy as np
-import struct
-import os
-
-hdf5_path = "${hdf5_file}"
-output_dir = "${glove_dir}"
-
-print(f"Loading {hdf5_path}...")
-with h5py.File(hdf5_path, 'r') as f:
-    # Print available keys
-    print(f"Keys: {list(f.keys())}")
-
-    # Load data
-    train = np.array(f['train'])
-    test = np.array(f['test'])
-    neighbors = np.array(f['neighbors'])
-    distances = np.array(f.get('distances', None))
-
-    print(f"Train shape: {train.shape}")
-    print(f"Test shape: {test.shape}")
-    print(f"Neighbors shape: {neighbors.shape}")
-
-# Write train vectors to fvecs
-def write_fvecs(filename, vectors):
-    with open(filename, 'wb') as f:
-        for vec in vectors:
-            dim = len(vec)
-            f.write(struct.pack('i', dim))
-            f.write(vec.astype(np.float32).tobytes())
-
-# Write ground truth to ivecs
-def write_ivecs(filename, vectors):
-    with open(filename, 'wb') as f:
-        for vec in vectors:
-            dim = len(vec)
-            f.write(struct.pack('i', dim))
-            f.write(vec.astype(np.int32).tobytes())
-
-write_fvecs(os.path.join(output_dir, 'train.fvecs'), train)
-write_fvecs(os.path.join(output_dir, 'test.fvecs'), test)
-write_ivecs(os.path.join(output_dir, 'groundtruth.ivecs'), neighbors)
-
-print("Extraction complete!")
-EOF
-
-  rm -f "$hdf5_file"
+  convert_hdf5_dataset "$hdf5_file" "$glove_dir" "true"
   log_info "GloVe dataset ready at $glove_dir"
-}
-
-# Download DEEP1B
-download_deep1b() {
-  log_step "Downloading DEEP1B dataset (Angular distance, 3.6GB)..."
-
-  local deep1b_dir="${DATA_DIR}/deep1b"
-  local hdf5_file="${DATA_DIR}/deep-96-angular.hdf5"
-
-  if [ -d "$deep1b_dir" ] && [ -f "$deep1b_dir/train.fvecs" ]; then
-    log_info "DEEP1B dataset already extracted"
-    return 0
-  fi
-
-  mkdir -p "$DATA_DIR"
-  download_file "$DEEP1B_URL" "$hdf5_file"
-
-  log_info "Extracting DEEP1B dataset from HDF5..."
-  mkdir -p "$deep1b_dir"
-
-  # Use Python to extract HDF5 to fvecs format
-  python3 << 'EOF'
-import h5py
-import numpy as np
-import struct
-import os
-import sys
-
-hdf5_path = os.environ.get('HDF5_PATH', '')
-output_dir = os.environ.get('OUTPUT_DIR', '')
-
-print(f"Loading {hdf5_path}...")
-try:
-    with h5py.File(hdf5_path, 'r') as f:
-        print(f"Keys: {list(f.keys())}")
-
-        train = np.array(f['train'])
-        test = np.array(f['test'])
-        neighbors = np.array(f['neighbors'])
-
-        print(f"Train shape: {train.shape}")
-        print(f"Test shape: {test.shape}")
-        print(f"Neighbors shape: {neighbors.shape}")
-
-    def write_fvecs(filename, vectors):
-        with open(filename, 'wb') as f:
-            for i, vec in enumerate(vectors):
-                if i % 1000000 == 0:
-                    print(f"  Writing vector {i}/{len(vectors)}...")
-                dim = len(vec)
-                f.write(struct.pack('i', dim))
-                f.write(vec.astype(np.float32).tobytes())
-
-    def write_ivecs(filename, vectors):
-        with open(filename, 'wb') as f:
-            for vec in vectors:
-                dim = len(vec)
-                f.write(struct.pack('i', dim))
-                f.write(vec.astype(np.int32).tobytes())
-
-    write_fvecs(os.path.join(output_dir, 'train.fvecs'), train)
-    write_fvecs(os.path.join(output_dir, 'test.fvecs'), test)
-    write_ivecs(os.path.join(output_dir, 'groundtruth.ivecs'), neighbors)
-
-    print("Extraction complete!")
-except Exception as e:
-    print(f"Error: {e}")
-    sys.exit(1)
-EOF
-
-  # Export variables for the Python script
-  export HDF5_PATH="$hdf5_file"
-  export OUTPUT_DIR="$deep1b_dir"
-  python3 << 'PYEOF'
-import h5py
-import numpy as np
-import struct
-import os
-import sys
-
-hdf5_path = os.environ['HDF5_PATH']
-output_dir = os.environ['OUTPUT_DIR']
-
-print(f"Loading {hdf5_path}...")
-try:
-    with h5py.File(hdf5_path, 'r') as f:
-        print(f"Keys: {list(f.keys())}")
-
-        train = np.array(f['train'])
-        test = np.array(f['test'])
-        neighbors = np.array(f['neighbors'])
-
-        print(f"Train shape: {train.shape}")
-        print(f"Test shape: {test.shape}")
-        print(f"Neighbors shape: {neighbors.shape}")
-
-    def write_fvecs(filename, vectors):
-        with open(filename, 'wb') as f:
-            for i, vec in enumerate(vectors):
-                if i % 1000000 == 0:
-                    print(f"  Writing vector {i}/{len(vectors)}...")
-                dim = len(vec)
-                f.write(struct.pack('i', dim))
-                f.write(vec.astype(np.float32).tobytes())
-
-    def write_ivecs(filename, vectors):
-        with open(filename, 'wb') as f:
-            for vec in vectors:
-                dim = len(vec)
-                f.write(struct.pack('i', dim))
-                f.write(vec.astype(np.int32).tobytes())
-
-    write_fvecs(os.path.join(output_dir, 'train.fvecs'), train)
-    write_fvecs(os.path.join(output_dir, 'test.fvecs'), test)
-    write_ivecs(os.path.join(output_dir, 'groundtruth.ivecs'), neighbors)
-
-    print("Extraction complete!")
-except Exception as e:
-    print(f"Error: {e}")
-    sys.exit(1)
-PYEOF
-
-  rm -f "$hdf5_file"
-  log_info "DEEP1B dataset ready at $deep1b_dir"
 }
 
 # Download GIST
 download_gist() {
-  log_step "Downloading GIST dataset (Euclidean distance, 3.6GB)..."
+  log_step "Downloading GIST dataset (L2 distance, 3.6GB)..."
 
   local gist_dir="${DATA_DIR}/gist"
   local hdf5_file="${DATA_DIR}/gist-960-euclidean.hdf5"
 
   if [ -d "$gist_dir" ] && [ -f "$gist_dir/train.fvecs" ]; then
-    log_info "GIST dataset already extracted"
+    log_info "GIST dataset already exists"
     return 0
   fi
 
   mkdir -p "$DATA_DIR"
   download_file "$GIST_URL" "$hdf5_file"
 
-  log_info "Extracting GIST dataset from HDF5..."
   mkdir -p "$gist_dir"
-
-  # Export variables for the Python script
-  export HDF5_PATH="$hdf5_file"
-  export OUTPUT_DIR="$gist_dir"
-  python3 << 'PYEOF'
-import h5py
-import numpy as np
-import struct
-import os
-import sys
-
-hdf5_path = os.environ['HDF5_PATH']
-output_dir = os.environ['OUTPUT_DIR']
-
-print(f"Loading {hdf5_path}...")
-try:
-    with h5py.File(hdf5_path, 'r') as f:
-        print(f"Keys: {list(f.keys())}")
-
-        train = np.array(f['train'])
-        test = np.array(f['test'])
-        neighbors = np.array(f['neighbors'])
-
-        print(f"Train shape: {train.shape}")
-        print(f"Test shape: {test.shape}")
-        print(f"Neighbors shape: {neighbors.shape}")
-
-    def write_fvecs(filename, vectors):
-        with open(filename, 'wb') as f:
-            for i, vec in enumerate(vectors):
-                if i % 100000 == 0:
-                    print(f"  Writing vector {i}/{len(vectors)}...")
-                dim = len(vec)
-                f.write(struct.pack('i', dim))
-                f.write(vec.astype(np.float32).tobytes())
-
-    def write_ivecs(filename, vectors):
-        with open(filename, 'wb') as f:
-            for vec in vectors:
-                dim = len(vec)
-                f.write(struct.pack('i', dim))
-                f.write(vec.astype(np.int32).tobytes())
-
-    write_fvecs(os.path.join(output_dir, 'train.fvecs'), train)
-    write_fvecs(os.path.join(output_dir, 'test.fvecs'), test)
-    write_ivecs(os.path.join(output_dir, 'groundtruth.ivecs'), neighbors)
-
-    print("Extraction complete!")
-except Exception as e:
-    print(f"Error: {e}")
-    sys.exit(1)
-PYEOF
-
-  rm -f "$hdf5_file"
+  convert_hdf5_dataset "$hdf5_file" "$gist_dir" "true"
   log_info "GIST dataset ready at $gist_dir"
 }
 
@@ -380,16 +164,8 @@ verify() {
     local size=$(stat -c%s "$glove_dir/train.fvecs" 2>/dev/null || stat -f%z "$glove_dir/train.fvecs")
     log_info "GloVe: train.fvecs ($(($size / 1024 / 1024)) MB)"
   else
-    log_warn "GloVe: train.fvecs not found (optional)"
-  fi
-
-  # Verify DEEP1B
-  local deep1b_dir="${DATA_DIR}/deep1b"
-  if [ -f "$deep1b_dir/train.fvecs" ]; then
-    local size=$(stat -c%s "$deep1b_dir/train.fvecs" 2>/dev/null || stat -f%z "$deep1b_dir/train.fvecs")
-    log_info "DEEP1B: train.fvecs ($(($size / 1024 / 1024)) MB)"
-  else
-    log_warn "DEEP1B: train.fvecs not found (optional)"
+    log_error "GloVe: train.fvecs not found"
+    all_ok=false
   fi
 
   # Verify GIST
@@ -398,7 +174,8 @@ verify() {
     local size=$(stat -c%s "$gist_dir/train.fvecs" 2>/dev/null || stat -f%z "$gist_dir/train.fvecs")
     log_info "GIST: train.fvecs ($(($size / 1024 / 1024)) MB)"
   else
-    log_warn "GIST: train.fvecs not found (optional)"
+    log_error "GIST: train.fvecs not found"
+    all_ok=false
   fi
 
   if $all_ok; then
@@ -412,15 +189,14 @@ verify() {
 
 # Usage
 usage() {
-  echo "Usage: $0 [sift|glove|deep1b|gist|all|verify]"
+  echo "Usage: $0 [sift|glove|gist|all|verify]"
   echo ""
   echo "Commands:"
-  echo "  sift    - Download SIFT dataset (L2 distance, 501MB)"
-  echo "  glove   - Download GloVe dataset (Angular distance, 235MB)"
-  echo "  deep1b  - Download DEEP1B dataset (Angular distance, 3.6GB)"
-  echo "  gist    - Download GIST dataset (L2 distance, 3.6GB)"
-  echo "  all     - Download all datasets (default)"
-  echo "  verify  - Verify existing datasets"
+  echo "  sift   - Download SIFT dataset (L2 distance, 501MB)"
+  echo "  glove  - Download GloVe dataset (Angular distance, 235MB)"
+  echo "  gist   - Download GIST dataset (L2 distance, 3.6GB)"
+  echo "  all    - Download all datasets (default)"
+  echo "  verify - Verify existing datasets"
 }
 
 # Main
@@ -439,16 +215,12 @@ main() {
     glove)
       download_glove
       ;;
-    deep1b)
-      download_deep1b
-      ;;
     gist)
       download_gist
       ;;
     all)
       download_sift
       download_glove
-      download_deep1b
       download_gist
       ;;
     verify)
