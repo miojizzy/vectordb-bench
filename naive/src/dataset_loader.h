@@ -42,19 +42,7 @@ struct Dataset {
 // Dataset loader for fvecs/ivecs format files
 class DatasetLoader {
  public:
-  // Load SIFT dataset (L2 distance)
-  static Dataset LoadSIFT(const std::string& data_dir);
-
-  // Load GloVe dataset (Angular/Inner Product distance)
-  static Dataset LoadGloVe(const std::string& data_dir);
-
-  // Load Fashion-MNIST dataset (L2 distance)
-  static Dataset LoadFashionMNIST(const std::string& data_dir);
-
-  // Load Last.fm dataset (Inner Product distance)
-  static Dataset LoadLastfm(const std::string& data_dir);
-
-  // Generic loader (auto-detect by directory name)
+  // Generic loader (auto-detect by directory name format: name-dimension-distance)
   static Dataset Load(const std::string& data_dir);
 
  private:
@@ -65,6 +53,12 @@ class DatasetLoader {
   // Read .ivecs file (integer vectors)
   static std::vector<std::vector<int>> ReadIvecs(
       const std::string& filepath);
+
+  // Parse directory name to extract dataset info (name-dimension-distance)
+  static void ParseDirectoryName(const std::string& dirname,
+                                  std::string& name,
+                                  int& dimension,
+                                  MetricType& metric_type);
 };
 
 }  // namespace naive

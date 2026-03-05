@@ -1,12 +1,12 @@
 #!/bin/bash
 # Copyright 2026 VectorDBBench Authors
-# 
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-# 
+#
 #     http://www.apache.org/licenses/LICENSE-2.0
-# 
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,15 +15,14 @@
 
 set -e
 
+# ============================================================================
+# 底层配置 (Infrastructure Configuration)
+# ============================================================================
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${SCRIPT_DIR}/.."
 DATA_DIR="${PROJECT_ROOT}/data"
 CONVERT_SCRIPT="${SCRIPT_DIR}/convert_hdf5_to_fvecs.py"
-
-# URLs - All datasets from ann-benchmarks (HDF5 format)
-SIFT_URL="http://ann-benchmarks.com/sift-128-euclidean.hdf5"
-GLOVE_URL="http://ann-benchmarks.com/glove-50-angular.hdf5"
-GIST_URL="http://ann-benchmarks.com/gist-960-euclidean.hdf5"
 
 # Colors for output
 RED='\033[0;31m'
@@ -32,12 +31,28 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# ============================================================================
+# 业务配置 (Business Configuration)
+# ============================================================================
+
+# Dataset configuration: name:dimension:distance:url
+declare -A DATASETS=(
+  ["sift"]="128:euclidean:http://ann-benchmarks.com/sift-128-euclidean.hdf5"
+  ["glove"]="50:angular:http://ann-benchmarks.com/glove-50-angular.hdf5"
+  ["gist"]="960:euclidean:http://ann-benchmarks.com/gist-960-euclidean.hdf5"
+)
+
+# ============================================================================
+# 底层逻辑 (Infrastructure Functions)
+# ============================================================================
+
+# Logging functions
 log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_step() { echo -e "${BLUE}[STEP]${NC} $1"; }
 
-# Download function with resume support
+# Download file with resume support
 download_file() {
   local url=$1
   local output=$2
@@ -63,15 +78,10 @@ download_file() {
 convert_hdf5_dataset() {
   local hdf5_file=$1
   local output_dir=$2
-  local use_dot_naming=$3
 
   log_info "Converting $hdf5_file to fvecs format..."
 
-  if [ "$use_dot_naming" = "true" ]; then
-    python3 "$CONVERT_SCRIPT" "$hdf5_file" "$output_dir" --dot
-  else
-    python3 "$CONVERT_SCRIPT" "$hdf5_file" "$output_dir"
-  fi
+  python3 "$CONVERT_SCRIPT" "$hdf5_file" "$output_dir"
 
   if [ $? -eq 0 ]; then
     rm -f "$hdf5_file"
@@ -82,101 +92,76 @@ convert_hdf5_dataset() {
   fi
 }
 
-# Download SIFT
-download_sift() {
-  log_step "Downloading SIFT dataset (L2 distance)..."
+# Get file size in MB
+get_file_size_mb() {
+  local file=$1
+  local size=$(stat -c%s "$file" 2>/dev/null || stat -f%z "$file")
+  echo $(($size / 1024 / 1024))
+}
 
-  local sift_dir="${DATA_DIR}/sift"
-  local hdf5_file="${DATA_DIR}/sift-128-euclidean.hdf5"
+# ============================================================================
+# 业务逻辑 (Business Functions)
+# ============================================================================
 
-  if [ -d "$sift_dir" ] && [ -f "$sift_dir/sift_base.fvecs" ]; then
-    log_info "SIFT dataset already exists"
+# Download dataset by name
+download_dataset() {
+  local name=$1
+  local config=${DATASETS[$name]}
+
+  local dimension=$(echo "$config" | cut -d':' -f1)
+  local distance=$(echo "$config" | cut -d':' -f2)
+  local url=$(echo "$config" | cut -d':' -f3-)
+
+  local dataset_dir="${DATA_DIR}/${name}-${dimension}-${distance}"
+  local hdf5_file="${DATA_DIR}/${name}-${dimension}-${distance}.hdf5"
+
+  log_step "Downloading ${name^^} dataset (${distance} distance)..."
+
+  if [ -d "$dataset_dir" ] && [ -f "$dataset_dir/base.fvecs" ]; then
+    log_info "${name^^} dataset already exists"
     return 0
   fi
 
   mkdir -p "$DATA_DIR"
-  download_file "$SIFT_URL" "$hdf5_file"
+  download_file "$url" "$hdf5_file"
 
-  mkdir -p "$sift_dir"
-  convert_hdf5_dataset "$hdf5_file" "$sift_dir" "false"
-  log_info "SIFT dataset ready at $sift_dir"
+  mkdir -p "$dataset_dir"
+  convert_hdf5_dataset "$hdf5_file" "$dataset_dir"
+  log_info "${name^^} dataset ready at $dataset_dir"
 }
 
-# Download GloVe
-download_glove() {
-  log_step "Downloading GloVe dataset (Angular distance)..."
+# Verify single dataset
+verify_dataset() {
+  local name=$1
+  local config=${DATASETS[$name]}
 
-  local glove_dir="${DATA_DIR}/glove"
-  local hdf5_file="${DATA_DIR}/glove-50-angular.hdf5"
+  local dimension=$(echo "$config" | cut -d':' -f1)
+  local distance=$(echo "$config" | cut -d':' -f2)
 
-  if [ -d "$glove_dir" ] && [ -f "$glove_dir/train.fvecs" ]; then
-    log_info "GloVe dataset already exists"
+  local dataset_dir="${DATA_DIR}/${name}-${dimension}-${distance}"
+  local fvecs_file="${dataset_dir}/base.fvecs"
+
+  if [ -f "$fvecs_file" ]; then
+    local size=$(get_file_size_mb "$fvecs_file")
+    log_info "${name^^}: base.fvecs (${size} MB)"
     return 0
+  else
+    log_error "${name^^}: base.fvecs not found"
+    return 1
   fi
-
-  mkdir -p "$DATA_DIR"
-  download_file "$GLOVE_URL" "$hdf5_file"
-
-  mkdir -p "$glove_dir"
-  convert_hdf5_dataset "$hdf5_file" "$glove_dir" "true"
-  log_info "GloVe dataset ready at $glove_dir"
 }
 
-# Download GIST
-download_gist() {
-  log_step "Downloading GIST dataset (L2 distance, 3.6GB)..."
-
-  local gist_dir="${DATA_DIR}/gist"
-  local hdf5_file="${DATA_DIR}/gist-960-euclidean.hdf5"
-
-  if [ -d "$gist_dir" ] && [ -f "$gist_dir/train.fvecs" ]; then
-    log_info "GIST dataset already exists"
-    return 0
-  fi
-
-  mkdir -p "$DATA_DIR"
-  download_file "$GIST_URL" "$hdf5_file"
-
-  mkdir -p "$gist_dir"
-  convert_hdf5_dataset "$hdf5_file" "$gist_dir" "true"
-  log_info "GIST dataset ready at $gist_dir"
-}
-
-# Verify datasets
+# Verify all datasets
 verify() {
   log_step "Verifying datasets..."
 
   local all_ok=true
 
-  # Verify SIFT
-  local sift_dir="${DATA_DIR}/sift"
-  if [ -f "$sift_dir/sift_base.fvecs" ]; then
-    local size=$(stat -c%s "$sift_dir/sift_base.fvecs" 2>/dev/null || stat -f%z "$sift_dir/sift_base.fvecs")
-    log_info "SIFT: sift_base.fvecs ($(($size / 1024 / 1024)) MB)"
-  else
-    log_error "SIFT: sift_base.fvecs not found"
-    all_ok=false
-  fi
-
-  # Verify GloVe
-  local glove_dir="${DATA_DIR}/glove"
-  if [ -f "$glove_dir/train.fvecs" ]; then
-    local size=$(stat -c%s "$glove_dir/train.fvecs" 2>/dev/null || stat -f%z "$glove_dir/train.fvecs")
-    log_info "GloVe: train.fvecs ($(($size / 1024 / 1024)) MB)"
-  else
-    log_error "GloVe: train.fvecs not found"
-    all_ok=false
-  fi
-
-  # Verify GIST
-  local gist_dir="${DATA_DIR}/gist"
-  if [ -f "$gist_dir/train.fvecs" ]; then
-    local size=$(stat -c%s "$gist_dir/train.fvecs" 2>/dev/null || stat -f%z "$gist_dir/train.fvecs")
-    log_info "GIST: train.fvecs ($(($size / 1024 / 1024)) MB)"
-  else
-    log_error "GIST: train.fvecs not found"
-    all_ok=false
-  fi
+  for dataset_name in "sift" "glove" "gist"; do
+    if ! verify_dataset "$dataset_name"; then
+      all_ok=false
+    fi
+  done
 
   if $all_ok; then
     log_info "All datasets verified successfully!"
@@ -187,19 +172,22 @@ verify() {
   fi
 }
 
-# Usage
+# Show usage information
 usage() {
   echo "Usage: $0 [sift|glove|gist|all|verify]"
   echo ""
   echo "Commands:"
-  echo "  sift   - Download SIFT dataset (L2 distance, 501MB)"
-  echo "  glove  - Download GloVe dataset (Angular distance, 235MB)"
-  echo "  gist   - Download GIST dataset (L2 distance, 3.6GB)"
+  echo "  sift   - Download SIFT dataset (128-dim, L2 distance, 501MB)"
+  echo "  glove  - Download GloVe dataset (50-dim, Angular distance, 235MB)"
+  echo "  gist   - Download GIST dataset (960-dim, L2 distance, 3.6GB)"
   echo "  all    - Download all datasets (default)"
   echo "  verify - Verify existing datasets"
 }
 
-# Main
+# ============================================================================
+# Main Entry Point
+# ============================================================================
+
 main() {
   local command=${1:-all}
 
@@ -210,18 +198,18 @@ main() {
 
   case $command in
     sift)
-      download_sift
+      download_dataset "sift"
       ;;
     glove)
-      download_glove
+      download_dataset "glove"
       ;;
     gist)
-      download_gist
+      download_dataset "gist"
       ;;
     all)
-      download_sift
-      download_glove
-      download_gist
+      for dataset_name in "sift" "glove" "gist"; do
+        download_dataset "$dataset_name"
+      done
       ;;
     verify)
       verify

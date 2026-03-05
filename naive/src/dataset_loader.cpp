@@ -17,6 +17,8 @@
 #include <fstream>
 #include <stdexcept>
 #include <filesystem>
+#include <algorithm>
+#include <iostream>
 
 namespace naive {
 
@@ -68,109 +70,67 @@ std::vector<std::vector<int>> DatasetLoader::ReadIvecs(
   return vectors;
 }
 
-Dataset DatasetLoader::LoadSIFT(const std::string& data_dir) {
-  Dataset dataset;
-  dataset.name = "SIFT";
-  dataset.metric_type = MetricType::kL2;
+void DatasetLoader::ParseDirectoryName(const std::string& dirname,
+                                        std::string& name,
+                                        int& dimension,
+                                        MetricType& metric_type) {
+  // Directory format: name-dimension-distance
+  // e.g., sift-128-euclidean, glove-50-angular, gist-960-euclidean
 
-  // Load train vectors
-  dataset.train_vectors = ReadFvecs(data_dir + "/sift_base.fvecs");
-  dataset.train_size = static_cast<int>(dataset.train_vectors.size());
-  dataset.dimension = dataset.train_vectors.empty() ? 0
-                     : static_cast<int>(dataset.train_vectors[0].size());
+  size_t first_dash = dirname.find('-');
+  if (first_dash == std::string::npos) {
+    throw std::runtime_error("Invalid directory name format: " + dirname);
+  }
 
-  // Load test vectors
-  dataset.test_vectors = ReadFvecs(data_dir + "/sift_query.fvecs");
-  dataset.test_size = static_cast<int>(dataset.test_vectors.size());
+  size_t second_dash = dirname.find('-', first_dash + 1);
+  if (second_dash == std::string::npos) {
+    throw std::runtime_error("Invalid directory name format: " + dirname);
+  }
 
-  // Load ground truth
-  dataset.ground_truth = ReadIvecs(data_dir + "/sift_groundtruth.ivecs");
-  dataset.k = dataset.ground_truth.empty() ? 0
-            : static_cast<int>(dataset.ground_truth[0].size());
+  name = dirname.substr(0, first_dash);
+  std::string dim_str = dirname.substr(first_dash + 1,
+                                        second_dash - first_dash - 1);
+  std::string distance = dirname.substr(second_dash + 1);
 
-  return dataset;
-}
+  dimension = std::stoi(dim_str);
 
-Dataset DatasetLoader::LoadGloVe(const std::string& data_dir) {
-  Dataset dataset;
-  dataset.name = "GloVe-50";
-  dataset.metric_type = MetricType::kInnerProduct;
-
-  // Load train vectors
-  dataset.train_vectors = ReadFvecs(data_dir + "/train.fvecs");
-  dataset.train_size = static_cast<int>(dataset.train_vectors.size());
-  dataset.dimension = dataset.train_vectors.empty() ? 0
-                     : static_cast<int>(dataset.train_vectors[0].size());
-
-  // Load test vectors
-  dataset.test_vectors = ReadFvecs(data_dir + "/test.fvecs");
-  dataset.test_size = static_cast<int>(dataset.test_vectors.size());
-
-  // Load ground truth
-  dataset.ground_truth = ReadIvecs(data_dir + "/groundtruth.ivecs");
-  dataset.k = dataset.ground_truth.empty() ? 0
-            : static_cast<int>(dataset.ground_truth[0].size());
-
-  return dataset;
-}
-
-Dataset DatasetLoader::LoadFashionMNIST(const std::string& data_dir) {
-  Dataset dataset;
-  dataset.name = "Fashion-MNIST";
-  dataset.metric_type = MetricType::kL2;
-
-  dataset.train_vectors = ReadFvecs(data_dir + "/sift_base.fvecs");
-  dataset.train_size = static_cast<int>(dataset.train_vectors.size());
-  dataset.dimension = dataset.train_vectors.empty() ? 0
-                     : static_cast<int>(dataset.train_vectors[0].size());
-
-  dataset.test_vectors = ReadFvecs(data_dir + "/sift_query.fvecs");
-  dataset.test_size = static_cast<int>(dataset.test_vectors.size());
-
-  dataset.ground_truth = ReadIvecs(data_dir + "/sift_groundtruth.ivecs");
-  dataset.k = dataset.ground_truth.empty() ? 0
-            : static_cast<int>(dataset.ground_truth[0].size());
-
-  return dataset;
-}
-
-Dataset DatasetLoader::LoadLastfm(const std::string& data_dir) {
-  Dataset dataset;
-  dataset.name = "Last.fm";
-  dataset.metric_type = MetricType::kInnerProduct;
-
-  dataset.train_vectors = ReadFvecs(data_dir + "/train.fvecs");
-  dataset.train_size = static_cast<int>(dataset.train_vectors.size());
-  dataset.dimension = dataset.train_vectors.empty() ? 0
-                     : static_cast<int>(dataset.train_vectors[0].size());
-
-  dataset.test_vectors = ReadFvecs(data_dir + "/test.fvecs");
-  dataset.test_size = static_cast<int>(dataset.test_vectors.size());
-
-  dataset.ground_truth = ReadIvecs(data_dir + "/groundtruth.ivecs");
-  dataset.k = dataset.ground_truth.empty() ? 0
-            : static_cast<int>(dataset.ground_truth[0].size());
-
-  return dataset;
+  if (distance == "euclidean") {
+    metric_type = MetricType::kL2;
+  } else if (distance == "angular" || distance == "inner-product") {
+    metric_type = MetricType::kInnerProduct;
+  } else {
+    throw std::runtime_error("Unknown distance metric: " + distance);
+  }
 }
 
 Dataset DatasetLoader::Load(const std::string& data_dir) {
   std::filesystem::path path(data_dir);
   std::string dirname = path.filename().string();
 
-  if (dirname.find("sift") != std::string::npos) {
-    return LoadSIFT(data_dir);
-  } else if (dirname.find("glove") != std::string::npos) {
-    return LoadGloVe(data_dir);
-  } else if (dirname.find("fashion") != std::string::npos ||
-             dirname.find("mnist") != std::string::npos) {
-    return LoadFashionMNIST(data_dir);
-  } else if (dirname.find("lastfm") != std::string::npos ||
-             dirname.find("last.fm") != std::string::npos) {
-    return LoadLastfm(data_dir);
-  } else {
-    throw std::runtime_error("Unknown dataset: " + dirname);
-  }
+  Dataset dataset;
+  ParseDirectoryName(dirname, dataset.name, dataset.dimension,
+                     dataset.metric_type);
+
+  // Transform name to uppercase for display
+  std::string display_name = dataset.name;
+  std::transform(display_name.begin(), display_name.end(),
+                 display_name.begin(), ::toupper);
+  dataset.name = display_name;
+
+  // Load train vectors
+  dataset.train_vectors = ReadFvecs(data_dir + "/base.fvecs");
+  dataset.train_size = static_cast<int>(dataset.train_vectors.size());
+
+  // Load test vectors
+  dataset.test_vectors = ReadFvecs(data_dir + "/query.fvecs");
+  dataset.test_size = static_cast<int>(dataset.test_vectors.size());
+
+  // Load ground truth
+  dataset.ground_truth = ReadIvecs(data_dir + "/groundtruth.ivecs");
+  dataset.k = dataset.ground_truth.empty() ? 0
+            : static_cast<int>(dataset.ground_truth[0].size());
+
+  return dataset;
 }
 
 }  // namespace naive

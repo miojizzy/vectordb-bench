@@ -40,14 +40,12 @@ def write_ivecs(filename, vectors):
       f.write(vec.astype(np.int32).tobytes())
 
 
-def convert_dataset(hdf5_path, output_dir, is_dot_product=False):
+def convert_dataset(hdf5_path, output_dir):
   """Convert HDF5 dataset to fvecs/ivecs format.
 
   Args:
     hdf5_path: Path to input HDF5 file
     output_dir: Output directory for fvecs/ivecs files
-    is_dot_product: If True, use generic naming (train.fvecs, test.fvecs).
-                    If False, use SIFT-style naming (sift_base.fvecs).
   """
   os.makedirs(output_dir, exist_ok=True)
 
@@ -68,15 +66,10 @@ def convert_dataset(hdf5_path, output_dir, is_dot_product=False):
     print(f'  Test: {test.shape}, dtype={test.dtype}')
     print(f'  Neighbors: {neighbors.shape}')
 
-  # Determine output file names
-  if is_dot_product:
-    base_name = 'train.fvecs'
-    query_name = 'test.fvecs'
-    gt_name = 'groundtruth.ivecs'
-  else:
-    base_name = 'sift_base.fvecs'
-    query_name = 'sift_query.fvecs'
-    gt_name = 'sift_groundtruth.ivecs'
+  # Use generic naming convention
+  base_name = 'base.fvecs'
+  query_name = 'query.fvecs'
+  gt_name = 'groundtruth.ivecs'
 
   print(f'Writing {output_dir}/{base_name}...')
   write_fvecs(os.path.join(output_dir, base_name), train)
@@ -92,15 +85,13 @@ def convert_dataset(hdf5_path, output_dir, is_dot_product=False):
 
 def main():
   if len(sys.argv) < 2:
-    print('Usage: python convert_hdf5_to_fvecs.py <hdf5_file> [output_dir] [--dot]')
-    print('  --dot: Use dot product naming convention (train.fvecs)')
+    print('Usage: python convert_hdf5_to_fvecs.py <hdf5_file> [output_dir]')
     sys.exit(1)
 
   hdf5_path = sys.argv[1]
   output_dir = sys.argv[2] if len(sys.argv) > 2 else os.path.dirname(hdf5_path)
-  is_dot = '--dot' in sys.argv
 
-  convert_dataset(hdf5_path, output_dir, is_dot)
+  convert_dataset(hdf5_path, output_dir)
 
 
 if __name__ == '__main__':
