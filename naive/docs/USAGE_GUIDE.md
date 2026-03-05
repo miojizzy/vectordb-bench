@@ -11,6 +11,13 @@ make -j$(nproc)
 
 编译后会生成可执行文件：
 - `hnswlib_bench` - 统一基准测试程序
+- `unit_tests` - 单元测试程序
+
+## 运行单元测试
+
+```bash
+./unit_tests
+```
 
 ## 基本用法
 

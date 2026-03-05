@@ -32,7 +32,6 @@ naive/
 │   ├── benchmark_search.cpp    # 搜索基准测试
 │   └── benchmark_concurrent.cpp # 并发基准测试
 ├── tests/                      # 单元测试
-│   ├── CMakeLists.txt          # 测试构建配置
 │   ├── README.md               # 测试文档
 │   ├── cli_parser_test.cpp
 │   ├── index_wrapper_test.cpp
@@ -51,7 +50,7 @@ naive/
 
 ## 构建命令
 
-### 构建主程序
+### 构建主程序和单元测试
 
 ```bash
 cd naive
@@ -60,13 +59,13 @@ cmake -DCMAKE_BUILD_TYPE=Release ..
 make -j$(nproc)
 ```
 
-### 构建并运行单元测试
+这将同时构建：
+- `hnswlib_bench` - 基准测试程序
+- `unit_tests` - 单元测试程序
+
+### 运行单元测试
 
 ```bash
-cd naive
-mkdir -p build_tests && cd build_tests
-cmake ../tests
-make -j$(nproc)
 ./unit_tests
 ```
 
