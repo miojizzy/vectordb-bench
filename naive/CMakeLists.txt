@@ -13,7 +13,7 @@
 # limitations under the License.
 
 cmake_minimum_required(VERSION 3.16)
-project(hnswlib_benchmark VERSION 0.1.0 LANGUAGES CXX)
+project(hnswlib_benchmark VERSION 0.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -50,33 +50,44 @@ target_include_directories(arena_hnswlib INTERFACE
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/arena-hnswlib/include
 )
 
-# Benchmark executable
+# Common source files (shared by all executables)
+set(COMMON_SOURCES
+  src/dataset_loader.cpp
+  src/cli_parser.cpp
+  src/index_wrapper.cpp
+  src/hnswlib_wrapper.cpp
+  src/arena_hnswlib_wrapper.cpp
+  src/index_manager.cpp
+)
+
+# Unified benchmark executable
 add_executable(hnswlib_bench
   src/main.cpp
-  src/dataset_loader.cpp
+  src/benchmark_index_build.cpp
+  src/benchmark_search.cpp
+  src/benchmark_concurrent.cpp
+  ${COMMON_SOURCES}
 )
 
 target_link_libraries(hnswlib_bench
   hnswlib
   arena_hnswlib
   benchmark::benchmark
+  pthread
 )
 
 target_include_directories(hnswlib_bench PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-# Search performance test executable
-add_executable(search_test
-  src/search_test.cpp
-  src/dataset_loader.cpp
-)
-
-target_link_libraries(search_test
-  hnswlib
-  arena_hnswlib
-)
-
-target_include_directories(search_test PRIVATE
-  ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
+# Print build info
+message(STATUS "")
+message(STATUS "Build configuration:")
+message(STATUS "  Project: ${PROJECT_NAME} v${PROJECT_VERSION}")
+message(STATUS "  C++ standard: ${CMAKE_CXX_STANDARD}")
+message(STATUS "  Build type: ${CMAKE_BUILD_TYPE}")
+message(STATUS "  Compiler: ${CMAKE_CXX_COMPILER}")
+message(STATUS "")
+message(STATUS "Executables:")
+message(STATUS "  hnswlib_bench - Unified benchmark with CLI support")
+message(STATUS "")
