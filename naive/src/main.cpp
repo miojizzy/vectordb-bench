@@ -16,6 +16,7 @@
 #include <hnswlib/hnswlib.h>
 #include <arena-hnswlib/arena_hnswlib.h>
 #include <arena-hnswlib/hnswalg.h>
+#include <arena-hnswlib/bruteforce.h>
 #include <arena-hnswlib/space_l2.h>
 #include <arena-hnswlib/space_ip.h>
 
@@ -535,6 +536,7 @@ int main(int argc, char** argv) {
                 << "  data_dir    Path to dataset directory\n"
                 << "              - data/sift    (SIFT, L2 distance)\n"
                 << "              - data/glove   (GloVe, InnerProduct)\n"
+                << "              - data/gist    (GIST, L2 distance)\n"
                 << "\n"
                 << "Default: data/sift\n"
                 << "\n"

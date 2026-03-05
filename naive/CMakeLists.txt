@@ -65,3 +65,18 @@ target_link_libraries(hnswlib_bench
 target_include_directories(hnswlib_bench PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
+
+# Search performance test executable
+add_executable(search_test
+  src/search_test.cpp
+  src/dataset_loader.cpp
+)
+
+target_link_libraries(search_test
+  hnswlib
+  arena_hnswlib
+)
+
+target_include_directories(search_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+)

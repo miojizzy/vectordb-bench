@@ -74,25 +74,39 @@ void DatasetLoader::ParseDirectoryName(const std::string& dirname,
                                         std::string& name,
                                         int& dimension,
                                         MetricType& metric_type) {
-  // Directory format: name-dimension-distance
-  // e.g., sift-128-euclidean, glove-50-angular, gist-960-euclidean
+  // Directory format: name-dimension-distance-topk{topk}
+  // e.g., sift-128-euclidean-topk100, glove-50-angular-topk100,
+  //       synthetic-64-euclidean-topk50, gist-960-euclidean-topk100
 
+  // Find first dash
   size_t first_dash = dirname.find('-');
   if (first_dash == std::string::npos) {
     throw std::runtime_error("Invalid directory name format: " + dirname);
   }
 
+  // Find second dash (between dimension and distance)
   size_t second_dash = dirname.find('-', first_dash + 1);
   if (second_dash == std::string::npos) {
     throw std::runtime_error("Invalid directory name format: " + dirname);
   }
 
+  // Extract name
   name = dirname.substr(0, first_dash);
+
+  // Extract dimension
   std::string dim_str = dirname.substr(first_dash + 1,
                                         second_dash - first_dash - 1);
-  std::string distance = dirname.substr(second_dash + 1);
-
   dimension = std::stoi(dim_str);
+
+  // Extract distance (everything between second dash and "-topk")
+  size_t topk_pos = dirname.find("-topk", second_dash + 1);
+  if (topk_pos == std::string::npos) {
+    throw std::runtime_error("Invalid directory name format: " + dirname +
+                             " (missing -topk suffix)");
+  }
+
+  std::string distance = dirname.substr(second_dash + 1,
+                                         topk_pos - second_dash - 1);
 
   if (distance == "euclidean") {
     metric_type = MetricType::kL2;

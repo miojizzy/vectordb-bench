@@ -35,11 +35,11 @@ NC='\033[0m' # No Color
 # 业务配置 (Business Configuration)
 # ============================================================================
 
-# Dataset configuration: name:dimension:distance:url
+# Dataset configuration: name:dimension:distance:topk:url
 declare -A DATASETS=(
-  ["sift"]="128:euclidean:http://ann-benchmarks.com/sift-128-euclidean.hdf5"
-  ["glove"]="50:angular:http://ann-benchmarks.com/glove-50-angular.hdf5"
-  ["gist"]="960:euclidean:http://ann-benchmarks.com/gist-960-euclidean.hdf5"
+  ["sift"]="128:euclidean:100:http://ann-benchmarks.com/sift-128-euclidean.hdf5"
+  ["glove"]="50:angular:100:http://ann-benchmarks.com/glove-50-angular.hdf5"
+  ["gist"]="960:euclidean:100:http://ann-benchmarks.com/gist-960-euclidean.hdf5"
 )
 
 # ============================================================================
@@ -110,12 +110,13 @@ download_dataset() {
 
   local dimension=$(echo "$config" | cut -d':' -f1)
   local distance=$(echo "$config" | cut -d':' -f2)
-  local url=$(echo "$config" | cut -d':' -f3-)
+  local topk=$(echo "$config" | cut -d':' -f3)
+  local url=$(echo "$config" | cut -d':' -f4-)
 
-  local dataset_dir="${DATA_DIR}/${name}-${dimension}-${distance}"
+  local dataset_dir="${DATA_DIR}/${name}-${dimension}-${distance}-topk${topk}"
   local hdf5_file="${DATA_DIR}/${name}-${dimension}-${distance}.hdf5"
 
-  log_step "Downloading ${name^^} dataset (${distance} distance)..."
+  log_step "Downloading ${name^^} dataset (${distance} distance, topk=${topk})..."
 
   if [ -d "$dataset_dir" ] && [ -f "$dataset_dir/base.fvecs" ]; then
     log_info "${name^^} dataset already exists"
@@ -137,8 +138,9 @@ verify_dataset() {
 
   local dimension=$(echo "$config" | cut -d':' -f1)
   local distance=$(echo "$config" | cut -d':' -f2)
+  local topk=$(echo "$config" | cut -d':' -f3)
 
-  local dataset_dir="${DATA_DIR}/${name}-${dimension}-${distance}"
+  local dataset_dir="${DATA_DIR}/${name}-${dimension}-${distance}-topk${topk}"
   local fvecs_file="${dataset_dir}/base.fvecs"
 
   if [ -f "$fvecs_file" ]; then
