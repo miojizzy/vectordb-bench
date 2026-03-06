@@ -19,6 +19,72 @@ make -j$(nproc)
 ./unit_tests
 ```
 
+## 数据准备
+
+### 扩展 Groundtruth
+
+使用 `extend_groundtruth.py` 脚本可以将现有的 groundtruth 从较小的 top-k 扩展到更大的 top-k。
+
+#### 基本用法
+
+```bash
+cd naive
+python3 scripts/extend_groundtruth.py <data_dir> <new_k> [options]
+```
+
+#### 参数说明
+
+- `data_dir`: 数据集目录路径（包含 base.fvecs, query.fvecs, groundtruth.ivecs）
+- `new_k`: 新的 top-k 值
+
+#### 可选参数
+
+- `--distance <metric>`: 距离度量方式
+  - `euclidean` 或 `l2` - L2 距离（默认）
+  - `angular` 或 `cosine` - 角距离
+  - `ip` 或 `inner_product` - 内积
+- `--workers <n>`: 工作进程数（默认: CPU核心数-1）
+- `--force`: 强制重新计算，即使目标文件已存在
+
+#### 示例
+
+```bash
+# 将 SIFT 数据集的 groundtruth 从 top-100 扩展到 top-1000
+python3 scripts/extend_groundtruth.py data/sift-128-euclidean-topk100 1000
+
+# 将 GloVe 数据集的 groundtruth 扩展到 top-500（角距离）
+python3 scripts/extend_groundtruth.py data/glove-50-angular-topk100 500 --distance angular
+
+# 使用 4 个工作进程
+python3 scripts/extend_groundtruth.py data/sift-128-euclidean-topk100 1000 --workers 4
+
+# 强制重新计算
+python3 scripts/extend_groundtruth.py data/sift-128-euclidean-topk100 1000 --force
+```
+
+#### 输出文件
+
+脚本会生成以下文件：
+- `groundtruth_<new_k>.ivecs`: 新的 groundtruth 文件
+- `groundtruth.ivecs`: 更新后的 groundtruth（top-k=<new_k>）
+- `groundtruth.ivecs.bak`: 原始 groundtruth 的备份
+
+#### 性能参考
+
+对于 SIFT 数据集（1M 向量，128 维，10K 查询）：
+- 扩展 top-100 → top-1000: 约 6-7 分钟
+- 平均每查询: ~40ms
+- 吞吐量: ~28M ops/s
+- 内存占用: ~500 MB（base 数据）
+
+#### 架构说明
+
+脚本使用多进程并行计算：
+- 主进程加载 base/query 数据到内存
+- 使用 Linux fork 创建工作进程池（copy-on-write 共享数据）
+- 每个工作进程计算部分查询的 top-k
+- 使用 NumPy BLAS 加速 + argpartition 算法
+
 ## 基本用法
 
 ### 1. 查看帮助
